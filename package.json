@@ -1,0 +1,13 @@
+{
+  "name": "tunisiefreelance-monitor",
+  "version": "1.0.0",
+  "description": "Watches TunisieFreelance categories and pings Telegram when a new project is posted.",
+  "main": "scraper.js",
+  "scripts": {
+    "start": "node scraper.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}
