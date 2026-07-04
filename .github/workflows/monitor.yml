@@ -1,26 +1,20 @@
 name: TunisieFreelance monitor
 
 on:
-  # Keepalive: makes sure a successor run is always queued to take over the
-  # moment the current long-running worker finishes (or if one ever dies).
   schedule:
-    - cron: "0 * * * *" # hourly
+    - cron: "*/20 * * * *" # every 20 minutes (best-effort; GitHub may lag a bit)
   workflow_dispatch: {} # manual "Run workflow" button
 
 permissions:
   contents: write
 
-# Only one worker at a time. Extra triggers wait as a pending successor and
-# start immediately when the running one ends -> seamless ~24/7 coverage.
 concurrency:
   group: monitor
   cancel-in-progress: false
 
 jobs:
-  watch:
+  check:
     runs-on: ubuntu-latest
-    # A single job may run up to 6h; we loop for ~5h55m then hand off.
-    timeout-minutes: 358
     steps:
       - uses: actions/checkout@v4
 
@@ -28,29 +22,21 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Watch every 60s and notify on new projects
+      - name: Check for new projects
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # Optional: CATEGORIES, MAX_AGE_DAYS
+        run: node scraper.js
+
+      - name: Persist state
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          INTERVAL="${CHECK_INTERVAL:-60}"     # seconds between checks
-          END=$(( SECONDS + 21000 ))           # ~5h50m, safely under the 6h cap
-
-          while [ "$SECONDS" -lt "$END" ]; do
-            node scraper.js || echo "run failed, will retry next tick"
-
-            # Persist state only when it actually changed.
-            if [ -n "$(git status --porcelain seen.json)" ]; then
-              git add seen.json
-              git commit -m "chore: update seen projects [skip ci]" || true
-              git push || echo "push failed, will retry next tick"
-            fi
-
-            sleep "$INTERVAL"
-          done
-
-          echo "Shift over — a queued successor run will take over."
+          if [ -n "$(git status --porcelain seen.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add seen.json
+            git commit -m "chore: update seen projects [skip ci]"
+            git push
+          else
+            echo "No state change."
+          fi
