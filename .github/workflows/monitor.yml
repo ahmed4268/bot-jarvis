@@ -2,7 +2,7 @@ name: TunisieFreelance monitor
 
 on:
   schedule:
-    - cron: "*/20 * * * *" # every 20 minutes (best-effort; GitHub may lag a bit)
+    - cron: "*/5 * * * *" # every 5 minutes (best-effort; GitHub's scheduler may lag)
   workflow_dispatch: {} # manual "Run workflow" button
 
 permissions:
