@@ -1,24 +1,26 @@
 name: TunisieFreelance monitor
 
 on:
+  # Keepalive: makes sure a successor run is always queued to take over the
+  # moment the current long-running worker finishes (or if one ever dies).
   schedule:
-    # Every 5 minutes (GitHub's minimum). Actual runs may lag a few minutes
-    # under load — that's fine, dedup by project id means nothing is missed.
-    - cron: "*/5 * * * *"
-  workflow_dispatch: {} # lets you run it manually from the Actions tab
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {} # manual "Run workflow" button
 
-# Needed so the job can commit the updated seen.json back to the repo.
 permissions:
   contents: write
 
-# Never let two runs overlap.
+# Only one worker at a time. Extra triggers wait as a pending successor and
+# start immediately when the running one ends -> seamless ~24/7 coverage.
 concurrency:
   group: monitor
   cancel-in-progress: false
 
 jobs:
-  check:
+  watch:
     runs-on: ubuntu-latest
+    # A single job may run up to 6h; we loop for ~5h55m then hand off.
+    timeout-minutes: 358
     steps:
       - uses: actions/checkout@v4
 
@@ -26,23 +28,29 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Check for new projects
+      - name: Watch every 60s and notify on new projects
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Optional overrides:
-          # CATEGORIES: "mobile-development,web-development"
-          # MAX_AGE_DAYS: "7"
-        run: node scraper.js
-
-      - name: Persist state
+          # Optional: CATEGORIES, MAX_AGE_DAYS
         run: |
-          if [ -n "$(git status --porcelain seen.json)" ]; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add seen.json
-            git commit -m "chore: update seen projects [skip ci]"
-            git push
-          else
-            echo "No state change."
-          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          INTERVAL="${CHECK_INTERVAL:-60}"     # seconds between checks
+          END=$(( SECONDS + 21000 ))           # ~5h50m, safely under the 6h cap
+
+          while [ "$SECONDS" -lt "$END" ]; do
+            node scraper.js || echo "run failed, will retry next tick"
+
+            # Persist state only when it actually changed.
+            if [ -n "$(git status --porcelain seen.json)" ]; then
+              git add seen.json
+              git commit -m "chore: update seen projects [skip ci]" || true
+              git push || echo "push failed, will retry next tick"
+            fi
+
+            sleep "$INTERVAL"
+          done
+
+          echo "Shift over — a queued successor run will take over."
