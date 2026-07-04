@@ -1,3 +1,16 @@
+# --- dependencies / logs ---
 node_modules/
-.env
 *.log
+
+# --- SECRETS: never commit these (kept local + in GitHub Actions Secrets) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets.json
+credentials.json
+token.txt
+*.local
